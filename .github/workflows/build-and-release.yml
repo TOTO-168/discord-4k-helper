@@ -45,6 +45,7 @@ jobs:
           GOARCH: arm64
         run: |
           mkdir -p ../../release-assets
+          cp ../../third_party/vencord_darwin_cli_compat.go ./vencord_darwin_cli_compat.go
           go build -tags cli -trimpath -ldflags="-s -w" -o ../../release-assets/VencordInstallerCli-macOS-arm64 .
           codesign --force --sign - ../../release-assets/VencordInstallerCli-macOS-arm64
           cp LICENSE ../../release-assets/VencordInstaller-LICENSE.txt
