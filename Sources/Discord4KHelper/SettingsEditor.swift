@@ -36,6 +36,12 @@ enum HelperError: LocalizedError {
     case missingVencord
     case discordWouldNotQuit
     case discordNotFound
+    case downloadFailed
+    case untrustedDownload
+    case missingUpdateAsset
+    case invalidUpdate
+    case updateLocationNotWritable
+    case processFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +53,18 @@ enum HelperError: LocalizedError {
             return "Discord 尚未完全結束，請手動結束後再試一次。"
         case .discordNotFound:
             return "在 Applications 資料夾中找不到 Discord。"
+        case .downloadFailed:
+            return "下載失敗，請檢查網路後再試一次。"
+        case .untrustedDownload:
+            return "下載來源不受信任。"
+        case .missingUpdateAsset:
+            return "這個版本沒有相容的 macOS 更新檔。"
+        case .invalidUpdate:
+            return "下載的更新檔無法驗證。"
+        case .updateLocationNotWritable:
+            return "目前 App 所在資料夾無法寫入，請移到 Applications 或桌面後再試。"
+        case .processFailed(let output):
+            return String(output.suffix(800))
         }
     }
 }

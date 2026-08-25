@@ -8,7 +8,7 @@ struct Discord4KHelperApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(width: 560, height: 560)
+                .frame(width: 580, height: 640)
         }
         .windowResizability(.contentSize)
     }
@@ -38,6 +38,11 @@ struct ContentView: View {
                         detail: model.bypassEnabled ? "已啟用（仍受 Discord 伺服器控制）" : "未啟用",
                         active: model.bypassEnabled
                     )
+                    StatusRow(
+                        title: "版本",
+                        detail: "v\(model.currentVersion)",
+                        active: !model.updateAvailable
+                    )
                 }
 
                 if let notice = model.notice {
@@ -49,20 +54,33 @@ struct ContentView: View {
                 }
 
                 Section("操作") {
-                    Button {
-                        model.applyBypass(true)
-                    } label: {
-                        Label("啟用 4K 選項並重啟 Discord", systemImage: "display.2")
-                            .frame(maxWidth: .infinity, minHeight: 32)
+                    if model.vencordInstalled {
+                        Button {
+                            model.applyBypass(true)
+                        } label: {
+                            Label("啟用 4K 選項並重啟 Discord", systemImage: "display.2")
+                                .frame(maxWidth: .infinity, minHeight: 32)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isBusy || !model.discordInstalled)
+                    } else {
+                        Button {
+                            model.installVencordAndEnable()
+                        } label: {
+                            Label("安裝 Vencord 並啟用 4K", systemImage: "arrow.down.app.fill")
+                                .frame(maxWidth: .infinity, minHeight: 32)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isBusy || !model.discordInstalled)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isBusy || !model.vencordInstalled || !model.discordInstalled)
 
                     HStack {
-                        Button("關閉畫質繞過") {
-                            model.applyBypass(false)
+                        if model.vencordInstalled {
+                            Button("關閉畫質繞過") {
+                                model.applyBypass(false)
+                            }
+                            .disabled(model.isBusy)
                         }
-                        .disabled(model.isBusy || !model.vencordInstalled)
 
                         Button("重新檢查") {
                             model.refresh()
@@ -79,13 +97,22 @@ struct ContentView: View {
                     }
                 }
 
-                if !model.vencordInstalled {
-                    Section("需要 Vencord") {
-                        Text("這個工具只切換 Vencord 內建的 FakeNitro 串流畫質功能，不會自行修改 Discord 程式檔。")
+                Section("軟體更新") {
+                    HStack {
+                        Text(model.updateAvailable
+                             ? "可更新至 v\(model.latestVersion ?? "新版")"
+                             : "目前版本 v\(model.currentVersion)")
                             .foregroundStyle(.secondary)
-                        Button("開啟 Vencord 官方下載頁") {
-                            model.openVencordDownload()
+                        Spacer()
+                        Button(model.updateAvailable ? "下載並安裝更新" : "檢查更新") {
+                            model.installUpdate()
                         }
+                        .disabled(model.isBusy || model.isCheckingUpdate)
+                    }
+                    if model.isCheckingUpdate {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("正在檢查更新")
                     }
                 }
             }

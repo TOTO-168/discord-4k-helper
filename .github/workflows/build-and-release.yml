@@ -1,0 +1,120 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: macOS arm64
+    runs-on: macos-latest
+    steps:
+      - name: Check out helper
+        uses: actions/checkout@v6
+
+      - name: Test and package helper
+        run: ./scripts/build-app.sh
+
+      - name: Check out official Vencord Installer source
+        uses: actions/checkout@v6
+        with:
+          repository: Vencord/Installer
+          ref: 6f2ce070f5ea8c27eaa8177e2825dd39def23fa5
+          path: .third-party/VencordInstaller
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .third-party/VencordInstaller/go.mod
+          cache-dependency-path: .third-party/VencordInstaller/go.sum
+
+      - name: Build official Vencord command-line installer
+        working-directory: .third-party/VencordInstaller
+        env:
+          CGO_ENABLED: "0"
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          mkdir -p ../../release-assets
+          go build -tags cli -trimpath -ldflags="-s -w" -o ../../release-assets/VencordInstallerCli-macOS-arm64 .
+          codesign --force --sign - ../../release-assets/VencordInstallerCli-macOS-arm64
+          cp LICENSE ../../release-assets/VencordInstaller-LICENSE.txt
+          cp ../../dist/Discord-4K-Helper-macOS-arm64.zip ../../release-assets/
+
+      - name: Upload macOS assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: release-assets/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Check out helper
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish single-file app
+        shell: pwsh
+        run: |
+          dotnet publish Windows/Discord4KHelper.Windows/Discord4KHelper.Windows.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:EnableCompressionInSingleFile=true `
+            --output release-assets
+
+      - name: Run Windows self-test
+        shell: pwsh
+        run: .\release-assets\Discord-4K-Helper-Windows-x64.exe --self-test
+
+      - name: Upload Windows asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: release-assets/Discord-4K-Helper-Windows-x64.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-macos
+          path: release-assets
+
+      - name: Download Windows asset
+        uses: actions/download-artifact@v8
+        with:
+          name: release-windows
+          path: release-assets
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Discord 4K Helper $TAG" \
+            --generate-notes

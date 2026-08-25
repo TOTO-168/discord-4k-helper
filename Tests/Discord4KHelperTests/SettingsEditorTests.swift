@@ -15,4 +15,10 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(fakeNitro["enableStreamQualityBypass"] as? Bool, true)
         XCTAssertTrue(SettingsEditor.isBypassEnabled(in: output))
     }
+
+    func testVersionComparison() throws {
+        XCTAssertLessThan(try XCTUnwrap(AppVersion("v1.9.9")), try XCTUnwrap(AppVersion("2.0.0")))
+        XCTAssertEqual(AppVersion("2.0"), AppVersion("v2.0.0"))
+        XCTAssertNil(AppVersion("latest"))
+    }
 }

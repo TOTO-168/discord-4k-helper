@@ -7,6 +7,9 @@ final class HelperModel: ObservableObject {
     @Published private(set) var vencordInstalled = false
     @Published private(set) var bypassEnabled = false
     @Published private(set) var isBusy = false
+    @Published private(set) var isCheckingUpdate = false
+    @Published private(set) var updateAvailable = false
+    @Published private(set) var latestVersion: String?
     @Published var notice: String?
     @Published var noticeIsError = false
 
@@ -21,6 +24,11 @@ final class HelperModel: ObservableObject {
             .appendingPathComponent("settings", isDirectory: true)
             .appendingPathComponent("settings.json")
         refresh()
+        Task { await checkForUpdates(silent: true) }
+    }
+
+    var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
     }
 
     var discordURL: URL? {
@@ -73,9 +81,79 @@ final class HelperModel: ObservableObject {
         }
     }
 
-    func openVencordDownload() {
-        guard let url = URL(string: "https://vencord.dev/download/") else { return }
-        NSWorkspace.shared.open(url)
+    func installVencordAndEnable() {
+        guard discordURL != nil else {
+            showError(HelperError.discordNotFound.localizedDescription)
+            return
+        }
+
+        isBusy = true
+        notice = "正在下載並安裝 Vencord…"
+        noticeIsError = false
+
+        Task {
+            do {
+                try await quitDiscord()
+                try await VencordInstallService.install()
+                refresh()
+                guard vencordInstalled else { throw HelperError.missingVencord }
+                try updateSettings(enabled: true)
+                try await launchDiscord()
+                refresh()
+                notice = "Vencord 與 4K 畫質選項已安裝完成。"
+                noticeIsError = false
+            } catch {
+                refresh()
+                showError(error.localizedDescription)
+            }
+            isBusy = false
+        }
+    }
+
+    func checkForUpdates(silent: Bool = false) async {
+        guard !isCheckingUpdate else { return }
+        isCheckingUpdate = true
+        if !silent {
+            notice = "正在檢查更新…"
+            noticeIsError = false
+        }
+
+        do {
+            let release = try await NetworkService.latestRelease()
+            latestVersion = release.version?.description ?? release.tagName
+            if let latest = release.version, let current = AppVersion(currentVersion), latest > current {
+                updateAvailable = true
+                notice = "發現新版本 v\(latest)。"
+            } else if !silent {
+                updateAvailable = false
+                notice = "目前已是最新版本。"
+            }
+        } catch {
+            if !silent { showError("無法檢查更新：\(error.localizedDescription)") }
+        }
+        isCheckingUpdate = false
+    }
+
+    func installUpdate() {
+        guard updateAvailable else {
+            Task { await checkForUpdates() }
+            return
+        }
+
+        isBusy = true
+        notice = "正在下載並安裝更新…"
+        noticeIsError = false
+        Task {
+            do {
+                let release = try await NetworkService.latestRelease()
+                try await AppUpdateService.prepare(release)
+                notice = "更新已下載，正在重新啟動…"
+                NSApplication.shared.terminate(nil)
+            } catch {
+                showError("更新失敗：\(error.localizedDescription)")
+                isBusy = false
+            }
+        }
     }
 
     func openDiscord() {
@@ -87,10 +165,15 @@ final class HelperModel: ObservableObject {
     }
 
     private func updateSettings(enabled: Bool) throws {
-        let original = try Data(contentsOf: settingsURL)
+        let existed = fileManager.fileExists(atPath: settingsURL.path)
+        let original = existed ? try Data(contentsOf: settingsURL) : Data("{\"plugins\":{}}".utf8)
+        try fileManager.createDirectory(
+            at: settingsURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         let backupURL = settingsURL.deletingLastPathComponent()
             .appendingPathComponent("settings.before-discord-4k-helper.json")
-        if !fileManager.fileExists(atPath: backupURL.path) {
+        if existed && !fileManager.fileExists(atPath: backupURL.path) {
             try original.write(to: backupURL, options: .atomic)
         }
 

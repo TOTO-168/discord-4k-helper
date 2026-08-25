@@ -1,0 +1,140 @@
+<Window x:Class="Discord4KHelper.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        mc:Ignorable="d"
+        Title="Discord 4K Helper"
+        Width="620" Height="700"
+        MinWidth="620" MinHeight="700"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource PageBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="32">
+            <Grid Margin="0,0,0,24">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="64" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Width="52" Height="52" CornerRadius="12"
+                        Background="{StaticResource PrimaryBrush}"
+                        VerticalAlignment="Center">
+                    <TextBlock Text="4K" Foreground="White" FontSize="20"
+                               FontWeight="Bold" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Discord 4K Helper" FontSize="24" FontWeight="Bold" />
+                    <TextBlock Text="安裝 Vencord 並啟用 Nitro 串流畫質選項"
+                               Margin="0,4,0,0" Foreground="{StaticResource MutedBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="目前狀態" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14" />
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="DiscordDot" Width="10" Height="10" Fill="{StaticResource InactiveBrush}" />
+                        <TextBlock Grid.Column="1" Text="Discord" />
+                        <TextBlock x:Name="DiscordStatusText" Grid.Column="2" Text="檢查中…"
+                                   Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
+                    </Grid>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="VencordDot" Width="10" Height="10" Fill="{StaticResource InactiveBrush}" />
+                        <TextBlock Grid.Column="1" Text="Vencord" />
+                        <TextBlock x:Name="VencordStatusText" Grid.Column="2" Text="檢查中…"
+                                   Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
+                    </Grid>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="BypassDot" Width="10" Height="10" Fill="{StaticResource InactiveBrush}" />
+                        <TextBlock Grid.Column="1" Text="4K 畫質選項" />
+                        <TextBlock x:Name="BypassStatusText" Grid.Column="2" Text="檢查中…"
+                                   Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="VersionDot" Width="10" Height="10" Fill="{StaticResource SuccessBrush}" />
+                        <TextBlock Grid.Column="1" Text="版本" />
+                        <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.0.0"
+                                   Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="NoticeBorder" Background="#FFF4D8" CornerRadius="10"
+                    Padding="14" Margin="0,0,0,16" Visibility="Collapsed">
+                <TextBlock x:Name="NoticeText" TextWrapping="Wrap" />
+            </Border>
+
+            <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="操作" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14" />
+                    <Button x:Name="PrimaryButton" Style="{StaticResource PrimaryButton}"
+                            Content="安裝 Vencord 並啟用 4K"
+                            Click="PrimaryButton_Click"
+                            automation:AutomationProperties.Name="安裝 Vencord 並啟用 4K" />
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="10" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DisableButton" Content="關閉畫質繞過"
+                                Click="DisableButton_Click"
+                                automation:AutomationProperties.Name="關閉畫質繞過" />
+                        <Button x:Name="RefreshButton" Grid.Column="2" Content="重新檢查"
+                                Click="RefreshButton_Click"
+                                automation:AutomationProperties.Name="重新檢查狀態" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource CardBrush}" CornerRadius="12" Padding="20" Margin="0,0,0,16">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="軟體更新" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock x:Name="UpdateStatusText" Text="自動檢查 GitHub Release"
+                                   Margin="0,5,16,0" Foreground="{StaticResource MutedBrush}" />
+                        <ProgressBar x:Name="UpdateProgress" Height="4" Margin="0,10,16,0"
+                                     IsIndeterminate="True" Visibility="Collapsed"
+                                     automation:AutomationProperties.Name="更新進度" />
+                    </StackPanel>
+                    <Button x:Name="UpdateButton" Grid.Column="1" Content="檢查更新"
+                            Click="UpdateButton_Click"
+                            automation:AutomationProperties.Name="檢查軟體更新" />
+                </Grid>
+            </Border>
+
+            <TextBlock Text="提醒：免費帳號的官方上限仍由 Discord 決定。此工具只能解除客戶端選項，無法保證觀看端收到 4K；使用 Vencord 也可能違反 Discord 使用條款。"
+                       Foreground="{StaticResource MutedBrush}" FontSize="12"
+                       LineHeight="18" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>
