@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Windows;
 
 namespace Discord4KHelper.Windows;
