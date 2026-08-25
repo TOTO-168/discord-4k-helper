@@ -86,7 +86,8 @@ internal static class Web
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Discord4KHelper", "2.0.0"));
+        var version = typeof(Web).Assembly.GetName().Version?.ToString(3) ?? "2.0.1";
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Discord4KHelper", version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
     }

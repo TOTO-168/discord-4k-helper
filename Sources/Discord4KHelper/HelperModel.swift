@@ -24,11 +24,10 @@ final class HelperModel: ObservableObject {
             .appendingPathComponent("settings", isDirectory: true)
             .appendingPathComponent("settings.json")
         refresh()
-        Task { await checkForUpdates(silent: true) }
     }
 
     var currentVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.1"
     }
 
     var discordURL: URL? {
@@ -56,6 +55,11 @@ final class HelperModel: ObservableObject {
         }
         guard discordURL != nil else {
             showError(HelperError.discordNotFound.localizedDescription)
+            return
+        }
+        guard bypassEnabled != enabled else {
+            notice = enabled ? "4K 畫質選項已經啟用。" : "畫質繞過已經關閉。"
+            noticeIsError = false
             return
         }
 

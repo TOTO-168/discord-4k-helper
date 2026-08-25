@@ -7,13 +7,18 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Discord-4K-Helper-Windows-x64</AssemblyName>
     <RootNamespace>Discord4KHelper.Windows</RootNamespace>
-    <Version>2.0.0</Version>
-    <FileVersion>2.0.0.0</FileVersion>
+    <Version>2.0.1</Version>
+    <FileVersion>2.0.1.0</FileVersion>
     <Product>Discord 4K Helper</Product>
+    <ApplicationIcon>..\..\Assets\AppIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DebugType>none</DebugType>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="..\..\Assets\AppIcon.ico" Link="AppIcon.ico" />
+  </ItemGroup>
 </Project>

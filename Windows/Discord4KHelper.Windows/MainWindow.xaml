@@ -6,9 +6,10 @@
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
         mc:Ignorable="d"
         Title="Discord 4K Helper"
+        Icon="AppIcon.ico"
         Width="620" Height="700"
-        MinWidth="620" MinHeight="700"
-        ResizeMode="NoResize"
+        MinWidth="520" MinHeight="560"
+        ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource PageBrush}"
         Foreground="{StaticResource TextBrush}"
@@ -78,7 +79,7 @@
                         </Grid.ColumnDefinitions>
                         <Ellipse x:Name="VersionDot" Width="10" Height="10" Fill="{StaticResource SuccessBrush}" />
                         <TextBlock Grid.Column="1" Text="版本" />
-                        <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.0.0"
+                        <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.0.1"
                                    Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
                     </Grid>
                 </StackPanel>
@@ -96,6 +97,9 @@
                             Content="安裝 Vencord 並啟用 4K"
                             Click="PrimaryButton_Click"
                             automation:AutomationProperties.Name="安裝 Vencord 並啟用 4K" />
+                    <ProgressBar x:Name="OperationProgress" Height="4" Margin="0,10,0,0"
+                                 IsIndeterminate="True" Visibility="Collapsed"
+                                 automation:AutomationProperties.Name="操作進度" />
                     <Grid Margin="0,10,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

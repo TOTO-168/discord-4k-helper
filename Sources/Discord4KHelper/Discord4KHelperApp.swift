@@ -8,9 +8,9 @@ struct Discord4KHelperApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(width: 580, height: 640)
+                .frame(minWidth: 520, idealWidth: 580, minHeight: 560, idealHeight: 640)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -47,9 +47,17 @@ struct ContentView: View {
 
                 if let notice = model.notice {
                     Section {
-                        Label(notice, systemImage: model.noticeIsError ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                            .foregroundStyle(model.noticeIsError ? .red : .secondary)
-                            .accessibilityLabel((model.noticeIsError ? "錯誤：" : "狀態：") + notice)
+                        HStack(spacing: 10) {
+                            if model.isBusy {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .accessibilityHidden(true)
+                            }
+                            Label(notice, systemImage: model.noticeIsError ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                                .foregroundStyle(model.noticeIsError ? .red : .secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel((model.noticeIsError ? "錯誤：" : "狀態：") + notice)
                     }
                 }
 
@@ -58,11 +66,14 @@ struct ContentView: View {
                         Button {
                             model.applyBypass(true)
                         } label: {
-                            Label("啟用 4K 選項並重啟 Discord", systemImage: "display.2")
+                            Label(
+                                model.bypassEnabled ? "4K 畫質選項已啟用" : "啟用 4K 選項並重啟 Discord",
+                                systemImage: model.bypassEnabled ? "checkmark.circle.fill" : "display.2"
+                            )
                                 .frame(maxWidth: .infinity, minHeight: 32)
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isBusy || !model.discordInstalled)
+                        .disabled(model.isBusy || !model.discordInstalled || model.bypassEnabled)
                     } else {
                         Button {
                             model.installVencordAndEnable()
@@ -79,7 +90,7 @@ struct ContentView: View {
                             Button("關閉畫質繞過") {
                                 model.applyBypass(false)
                             }
-                            .disabled(model.isBusy)
+                            .disabled(model.isBusy || !model.bypassEnabled)
                         }
 
                         Button("重新檢查") {
@@ -121,6 +132,9 @@ struct ContentView: View {
             footer
         }
         .padding(24)
+        .task {
+            await model.checkForUpdates(silent: true)
+        }
     }
 
     private var header: some View {

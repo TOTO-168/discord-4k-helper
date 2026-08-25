@@ -11,8 +11,10 @@ swift build -c release --arch arm64
 
 app_path="$stage_dir/Discord 4K Helper.app"
 mkdir -p "$app_path/Contents/MacOS"
+mkdir -p "$app_path/Contents/Resources"
 cp ".build/arm64-apple-macosx/release/Discord4KHelper" "$app_path/Contents/MacOS/Discord4KHelper"
 cp "Info.plist" "$app_path/Contents/Info.plist"
+cp "Assets/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 chmod 755 "$app_path/Contents/MacOS/Discord4KHelper"
 codesign --force --deep --sign - "$app_path"
 

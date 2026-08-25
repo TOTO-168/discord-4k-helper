@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Media;
 
 namespace Discord4KHelper.Windows;
@@ -25,7 +26,7 @@ public partial class MainWindow : Window
     }
 
     private static string CurrentVersion =>
-        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0";
+        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.1";
 
     private void RefreshState()
     {
@@ -41,11 +42,13 @@ public partial class MainWindow : Window
         BypassStatusText.Text = bypassEnabled ? "已啟用（仍受伺服器控制）" : "未啟用";
         VersionText.Text = $"v{CurrentVersion}";
 
-        PrimaryButton.Content = vencordInstalled
-            ? "啟用 4K 選項並重啟 Discord"
+        var primaryLabel = vencordInstalled
+            ? bypassEnabled ? "4K 畫質選項已啟用" : "啟用 4K 選項並重啟 Discord"
             : "安裝 Vencord 並啟用 4K";
-        PrimaryButton.IsEnabled = !_busy && discordInstalled;
-        DisableButton.IsEnabled = !_busy && vencordInstalled;
+        PrimaryButton.Content = primaryLabel;
+        AutomationProperties.SetName(PrimaryButton, primaryLabel);
+        PrimaryButton.IsEnabled = !_busy && discordInstalled && (!vencordInstalled || !bypassEnabled);
+        DisableButton.IsEnabled = !_busy && vencordInstalled && bypassEnabled;
         RefreshButton.IsEnabled = !_busy;
         UpdateButton.IsEnabled = !_busy;
     }
@@ -56,6 +59,11 @@ public partial class MainWindow : Window
         {
             if (!DiscordService.IsInstalled)
                 throw new InvalidOperationException("找不到 Discord，請先安裝 Discord Desktop。");
+            if (VencordService.IsInstalled && VencordSettings.IsBypassEnabled())
+            {
+                ShowNotice("4K 畫質選項已經啟用。");
+                return;
+            }
 
             await DiscordService.QuitAsync();
             if (!VencordService.IsInstalled)
@@ -100,7 +108,7 @@ public partial class MainWindow : Window
                 ShowNotice("正在下載並安裝更新…");
                 await UpdateService.InstallAsync(_latestRelease);
                 Application.Current.Shutdown();
-            });
+            }, showOperationProgress: false);
             return;
         }
 
@@ -145,10 +153,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RunBusyAsync(Func<Task> action)
+    private async Task RunBusyAsync(Func<Task> action, bool showOperationProgress = true)
     {
         if (_busy) return;
         _busy = true;
+        if (showOperationProgress) OperationProgress.Visibility = Visibility.Visible;
         RefreshState();
         try
         {
@@ -161,6 +170,7 @@ public partial class MainWindow : Window
         finally
         {
             _busy = false;
+            OperationProgress.Visibility = Visibility.Collapsed;
             UpdateProgress.Visibility = Visibility.Collapsed;
             RefreshState();
         }
