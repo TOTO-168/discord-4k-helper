@@ -86,7 +86,7 @@ internal static class Web
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        var version = typeof(Web).Assembly.GetName().Version?.ToString(3) ?? "2.0.1";
+        var version = typeof(Web).Assembly.GetName().Version?.ToString(3) ?? "2.1.0";
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Discord4KHelper", version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
@@ -146,6 +146,8 @@ internal static class DiscordService
             }
             catch { /* process may have exited between checks */ }
         }
+        if (Process.GetProcessesByName("Discord").Length != 0)
+            throw new InvalidOperationException("Discord 尚未完全結束，請手動結束後再試一次。");
     }
 
     internal static void Launch()
@@ -173,7 +175,7 @@ internal static class DiscordService
 
 internal static class VencordService
 {
-    private static readonly string Root = Path.Combine(
+    internal static readonly string Root = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vencord");
     internal static bool IsInstalled => File.Exists(Path.Combine(Root, "dist", "patcher.js"));
 
@@ -204,7 +206,7 @@ internal static class VencordSettings
 {
     private static readonly string SettingsDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vencord", "settings");
-    private static readonly string SettingsPath = Path.Combine(SettingsDirectory, "settings.json");
+    internal static readonly string SettingsPath = Path.Combine(SettingsDirectory, "settings.json");
 
     internal static bool IsBypassEnabled()
     {
@@ -220,13 +222,17 @@ internal static class VencordSettings
 
     internal static void Update(bool enabled) => UpdateFile(SettingsPath, enabled, createBackup: true);
 
-    internal static void UpdateFile(string path, bool enabled, bool createBackup)
+    internal static bool IsSoundClonerEnabled()
     {
-        var existed = File.Exists(path);
-        var root = existed
-            ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject
-            : new JsonObject();
+        try { return JsonNode.Parse(File.ReadAllText(SettingsPath))?["plugins"]?["SoundCloner"]?["enabled"]?.GetValue<bool>() == true; }
+        catch { return false; }
+    }
+
+    internal static string Edit(string json, bool? enabled = null, bool? soundCloner = null, bool removeSoundCloner = false)
+    {
+        var root = JsonNode.Parse(json) as JsonObject;
         if (root is null) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
+        if (root["plugins"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
 
         var plugins = root["plugins"] as JsonObject;
         if (plugins is null)
@@ -235,22 +241,41 @@ internal static class VencordSettings
             root["plugins"] = plugins;
         }
 
-        var fakeNitro = plugins["FakeNitro"] as JsonObject;
-        if (fakeNitro is null)
+        if (enabled is { } bypass)
         {
-            fakeNitro = new JsonObject();
-            plugins["FakeNitro"] = fakeNitro;
+            if (plugins["FakeNitro"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
+            var fakeNitro = plugins["FakeNitro"] as JsonObject;
+            if (fakeNitro is null) { fakeNitro = new JsonObject(); plugins["FakeNitro"] = fakeNitro; }
+            fakeNitro["enabled"] = true;
+            fakeNitro["enableStreamQualityBypass"] = bypass;
         }
-        fakeNitro["enabled"] = true;
-        fakeNitro["enableStreamQualityBypass"] = enabled;
+        if (soundCloner is { } sound)
+        {
+            if (plugins["SoundCloner"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
+            var plugin = plugins["SoundCloner"] as JsonObject;
+            if (plugin is null) { plugin = new JsonObject(); plugins["SoundCloner"] = plugin; }
+            plugin["enabled"] = sound;
+        }
+        if (removeSoundCloner) plugins.Remove("SoundCloner");
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
 
+    internal static void UpdateFile(string path, bool enabled, bool createBackup)
+    {
+        var existed = File.Exists(path);
+        var updated = Edit(existed ? File.ReadAllText(path) : "{}", enabled);
         var directory = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(directory);
         var backup = Path.Combine(directory, "settings.before-discord-4k-helper.json");
         if (createBackup && existed && !File.Exists(backup)) File.Copy(path, backup);
-        var temporary = Path.Combine(directory, $"settings-{Guid.NewGuid():N}.tmp");
-        File.WriteAllText(temporary, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temporary, path, overwrite: true);
+        WriteAtomic(path, updated);
+    }
+
+    internal static void WriteAtomic(string path, string text)
+    {
+        var temporary = Path.Combine(Path.GetDirectoryName(path)!, $"settings-{Guid.NewGuid():N}.tmp");
+        try { File.WriteAllText(temporary, text); File.Move(temporary, path, overwrite: true); }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 }
 
@@ -284,7 +309,7 @@ internal static class UpdateService
     internal static Task<GitHubRelease> GetLatestReleaseAsync() =>
         Web.GetJsonAsync<GitHubRelease>(new Uri(Distribution.ApiUrl));
 
-    internal static async Task InstallAsync(GitHubRelease release)
+    internal static async Task InstallAsync(GitHubRelease release, Func<Task>? beforeRelaunch = null)
     {
         var asset = release.Assets.FirstOrDefault(item => item.Name == Distribution.WindowsAsset)
             ?? throw new InvalidOperationException("這個版本沒有相容的 Windows 更新檔。");
@@ -303,6 +328,7 @@ internal static class UpdateService
         var target = Environment.ProcessPath
             ?? throw new InvalidOperationException("找不到目前程式路徑。");
         EnsureDirectoryIsWritable(Path.GetDirectoryName(target)!);
+        if (beforeRelaunch is not null) await beforeRelaunch();
         StartUpdater(target, replacement);
     }
 
@@ -367,6 +393,7 @@ internal static class SelfTest
         Directory.CreateDirectory(directory);
         try
         {
+            SoundClonerSelfTest.Run(directory);
             var settings = Path.Combine(directory, "settings.json");
             File.WriteAllText(settings, "{\"theme\":\"dark\",\"plugins\":{\"Other\":{\"enabled\":true}}}");
             VencordSettings.UpdateFile(settings, enabled: true, createBackup: false);

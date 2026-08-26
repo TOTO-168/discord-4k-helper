@@ -1,4 +1,7 @@
 .build/
+.third-party/
+.build-v210/
+release-assets/
 bin/
 obj/
 .DS_Store

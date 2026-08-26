@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+const config = JSON.parse(await readFile("VencordPlugin/build.json", "utf8"));
+const plist = await readFile("Info.plist", "utf8");
+const project = await readFile("Windows/Discord4KHelper.Windows/Discord4KHelper.Windows.csproj", "utf8");
+assert.equal(plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/)?.[1], config.helperVersion);
+assert.equal(project.match(/<Version>([^<]+)<\/Version>/)?.[1], config.helperVersion);
+assert.equal(project.match(/<FileVersion>([^<]+)<\/FileVersion>/)?.[1], config.helperVersion + ".0");
+if (process.env.GITHUB_REF?.startsWith("refs/tags/")) assert.equal(process.env.GITHUB_REF, "refs/tags/v" + config.helperVersion);
+console.log("Mac, Windows, plugin configuration and release tag versions agree.");

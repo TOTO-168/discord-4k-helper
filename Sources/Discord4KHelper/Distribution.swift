@@ -14,8 +14,8 @@ struct AppVersion: Comparable, CustomStringConvertible {
     let parts: [Int]
 
     init?(_ value: String) {
-        let core = value.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            .split(separator: "-", maxSplits: 1)[0]
+        guard let core = value.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            .split(separator: "-", maxSplits: 1).first else { return nil }
         let parsed = core.split(separator: ".").map(String.init).compactMap(Int.init)
         guard !parsed.isEmpty, parsed.count == core.split(separator: ".").count else { return nil }
         parts = parsed
@@ -117,20 +117,31 @@ enum ProcessRunner {
 enum VencordInstallService {
     static func install() async throws {
         let installer = try await NetworkService.download(Distribution.installerURL)
+        defer { try? FileManager.default.removeItem(at: installer) }
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installer.path)
         _ = try await ProcessRunner.run(installer, arguments: ["--install", "--branch", "stable"])
     }
 }
 
 enum AppUpdateService {
-    static func prepare(_ release: GitHubRelease) async throws {
+    static func target(for bundle: URL, parentWritable: Bool, home: URL) -> URL {
+        if bundle.path.contains("/AppTranslocation/") || !parentWritable {
+            return home.appendingPathComponent("Applications/Discord 4K Helper.app")
+        }
+        return bundle
+    }
+
+    static func prepare(_ release: GitHubRelease, beforeRelaunch: () async throws -> Void = {}) async throws {
         guard let asset = release.asset(named: Distribution.macAssetName) else {
             throw HelperError.missingUpdateAsset
         }
 
         let archive = try await NetworkService.download(asset.downloadURL)
+        defer { try? FileManager.default.removeItem(at: archive) }
         let stage = FileManager.default.temporaryDirectory
             .appendingPathComponent("discord-4k-update-\(UUID().uuidString)", isDirectory: true)
+        var updaterStarted = false
+        defer { if !updaterStarted { try? FileManager.default.removeItem(at: stage) } }
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
         _ = try await ProcessRunner.run(
             URL(fileURLWithPath: "/usr/bin/ditto"),
@@ -142,7 +153,8 @@ enum AppUpdateService {
             let bundle = Bundle(url: replacement),
             bundle.bundleIdentifier == "tw.codex.discord4khelper",
             let bundledVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-            AppVersion(bundledVersion) == release.version
+            let version = AppVersion(bundledVersion), let expected = release.version,
+            version == expected
         else { throw HelperError.invalidUpdate }
 
         _ = try await ProcessRunner.run(
@@ -150,10 +162,18 @@ enum AppUpdateService {
             arguments: ["--verify", "--deep", "--strict", replacement.path]
         )
 
-        let target = Bundle.main.bundleURL
+        let target = target(for: Bundle.main.bundleURL,
+                            parentWritable: FileManager.default.isWritableFile(atPath: Bundle.main.bundleURL.deletingLastPathComponent().path),
+                            home: FileManager.default.homeDirectoryForCurrentUser)
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard target.pathExtension == "app",
               FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path)
         else { throw HelperError.updateLocationNotWritable }
+        if FileManager.default.fileExists(atPath: target.path),
+           Bundle(url: target)?.bundleIdentifier != "tw.codex.discord4khelper" { throw HelperError.invalidUpdate }
+
+        // Finish an existing managed plugin update only after the app archive is verified.
+        try await beforeRelaunch()
 
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("discord-4k-updater-\(UUID().uuidString).sh")
@@ -163,17 +183,21 @@ enum AppUpdateService {
         replacement="$2"
         stage="$3"
         pid="$4"
-        backup="${target}.discord-4k-helper-old"
+        backup="${target}.old-\(UUID().uuidString)"
+        candidate="${target}.new-\(UUID().uuidString)"
         while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
-        rm -rf "$backup"
-        if mv "$target" "$backup" && /usr/bin/ditto "$replacement" "$target"; then
-            /usr/bin/open "$target"
-            rm -rf "$backup"
-        else
-            rm -rf "$target"
-            [ -e "$backup" ] && mv "$backup" "$target"
-            /usr/bin/open "$target"
+        if /usr/bin/ditto "$replacement" "$candidate"; then
+            if [ ! -e "$target" ] || mv "$target" "$backup"; then
+                if mv "$candidate" "$target"; then
+                    /usr/bin/open "$target"
+                    [ -e "$backup" ] && rm -rf "$backup"
+                else
+                    [ -e "$backup" ] && mv "$backup" "$target"
+                    /usr/bin/open "$target"
+                fi
+            fi
         fi
+        [ -e "$candidate" ] && rm -rf "$candidate"
         rm -rf "$stage"
         rm -f "$0"
         """
@@ -190,5 +214,6 @@ enum AppUpdateService {
             String(ProcessInfo.processInfo.processIdentifier)
         ]
         try updater.run()
+        updaterStarted = true
     }
 }

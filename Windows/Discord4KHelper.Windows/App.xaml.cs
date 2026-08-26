@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Windows;
 
@@ -17,8 +18,10 @@ public partial class App : Application
                 SelfTest.Run();
                 Shutdown(0);
             }
-            catch
+            catch (Exception error)
             {
+                var log = Environment.GetEnvironmentVariable("SELF_TEST_LOG");
+                if (!string.IsNullOrEmpty(log)) File.WriteAllText(log, error.ToString());
                 Shutdown(1);
             }
             return;

@@ -14,15 +14,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  vencord:
+    name: Pinned Vencord + SoundCloner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Read pinned build configuration
+        id: config
+        run: node -e 'const fs=require("fs"); const c=require("./VencordPlugin/build.json"); fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${c.vencordCommit}\n`);'
+      - name: Verify platform versions and tag
+        run: node scripts/verify-versions.mjs
+      - uses: actions/checkout@v6
+        with:
+          repository: Vendicated/Vencord
+          ref: ${{ steps.config.outputs.commit }}
+          path: .third-party/Vencord
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - name: Install dependencies and plugin
+        run: |
+          mkdir -p .third-party/Vencord/src/userplugins
+          cp -R VencordPlugin/SoundCloner .third-party/Vencord/src/userplugins/
+          pnpm --dir .third-party/Vencord install --frozen-lockfile
+      - name: Test plugin and TypeScript
+        run: |
+          node --test scripts/soundcloner.test.mjs
+          pnpm --dir .third-party/Vencord testTsc
+          pnpm --dir .third-party/Vencord exec eslint src/userplugins/SoundCloner/index.tsx --rule 'simple-header/header: off'
+      - name: Build managed Vencord and GPL source package
+        run: |
+          pnpm --dir .third-party/Vencord build --standalone --disable-updater
+          node scripts/create-vencord-package.mjs .third-party/Vencord release-assets
+          node scripts/verify-vencord-package.mjs release-assets
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-vencord
+          path: release-assets/*
+          if-no-files-found: error
+
   macos:
     name: macOS arm64
+    needs: vencord
     runs-on: macos-latest
     steps:
       - name: Check out helper
         uses: actions/checkout@v6
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-vencord
+          path: plugin-assets
+
       - name: Test and package helper
         run: ./scripts/build-app.sh
+        env:
+          SOUNDCLONER_PACKAGE: ${{ github.workspace }}/plugin-assets/Vencord-SoundCloner.zip
 
       - name: Check out official Vencord Installer source
         uses: actions/checkout@v6
@@ -60,6 +110,7 @@ jobs:
 
   windows:
     name: Windows x64
+    needs: vencord
     runs-on: windows-latest
     steps:
       - name: Check out helper
@@ -69,6 +120,11 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-vencord
+          path: plugin-assets
 
       - name: Publish single-file app
         shell: pwsh
@@ -83,7 +139,12 @@ jobs:
 
       - name: Run Windows self-test
         shell: pwsh
-        run: .\release-assets\Discord-4K-Helper-Windows-x64.exe --self-test
+        run: |
+          $env:SOUNDCLONER_PACKAGE = Join-Path $pwd 'plugin-assets/Vencord-SoundCloner.zip'
+          $env:SELF_TEST_LOG = Join-Path $pwd 'windows-self-test.log'
+          $process = Start-Process -FilePath .\release-assets\Discord-4K-Helper-Windows-x64.exe -ArgumentList '--self-test' -Wait -PassThru
+          if (Test-Path $env:SELF_TEST_LOG) { Get-Content $env:SELF_TEST_LOG }
+          if ($process.ExitCode -ne 0) { throw "Windows self-test failed: $($process.ExitCode)" }
 
       - name: Upload Windows asset
         uses: actions/upload-artifact@v7
@@ -95,9 +156,10 @@ jobs:
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, windows]
+    needs: [vencord, macos, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
       - name: Download macOS assets
         uses: actions/download-artifact@v8
         with:
@@ -110,6 +172,12 @@ jobs:
           name: release-windows
           path: release-assets
 
+      - name: Download Vencord plugin and GPL source assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-vencord
+          path: release-assets
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,4 +186,5 @@ jobs:
           gh release create "$TAG" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "Discord 4K Helper $TAG" \
+            --notes-file RELEASE_NOTES.md \
             --generate-notes

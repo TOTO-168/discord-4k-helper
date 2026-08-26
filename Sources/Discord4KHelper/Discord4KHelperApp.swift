@@ -8,7 +8,7 @@ struct Discord4KHelperApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 520, idealWidth: 580, minHeight: 560, idealHeight: 640)
+                .frame(minWidth: 560, idealWidth: 620, minHeight: 640, idealHeight: 760)
         }
         .windowResizability(.contentMinSize)
     }
@@ -16,6 +16,8 @@ struct Discord4KHelperApp: App {
 
 struct ContentView: View {
     @EnvironmentObject private var model: HelperModel
+    @State private var confirmCustom = false
+    @State private var confirmRestore = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -37,6 +39,11 @@ struct ContentView: View {
                         title: "4K 畫質選項",
                         detail: model.bypassEnabled ? "已啟用（仍受 Discord 伺服器控制）" : "未啟用",
                         active: model.bypassEnabled
+                    )
+                    StatusRow(
+                        title: "音效複製",
+                        detail: model.soundClonerVersion.map { "v\($0) · " + (model.soundClonerEnabled ? "已啟用" : "未啟用") } ?? "尚未安裝",
+                        active: model.soundClonerEnabled
                     )
                     StatusRow(
                         title: "版本",
@@ -62,35 +69,24 @@ struct ContentView: View {
                 }
 
                 Section("操作") {
-                    if model.vencordInstalled {
-                        Button {
-                            model.applyBypass(true)
-                        } label: {
-                            Label(
-                                model.bypassEnabled ? "4K 畫質選項已啟用" : "啟用 4K 選項並重啟 Discord",
-                                systemImage: model.bypassEnabled ? "checkmark.circle.fill" : "display.2"
-                            )
-                                .frame(maxWidth: .infinity, minHeight: 32)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isBusy || !model.discordInstalled || model.bypassEnabled)
-                    } else {
-                        Button {
-                            model.installVencordAndEnable()
-                        } label: {
-                            Label("安裝 Vencord 並啟用 4K", systemImage: "arrow.down.app.fill")
-                                .frame(maxWidth: .infinity, minHeight: 32)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.isBusy || !model.discordInstalled)
+                    Button {
+                        if model.needsCustomWarning { confirmCustom = true }
+                        else { model.installFeatures() }
+                    } label: {
+                        Label("安裝／更新 4K 與音效複製功能", systemImage: "arrow.down.app.fill")
+                            .frame(maxWidth: .infinity, minHeight: 32)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isBusy || model.isCheckingUpdate || !model.discordInstalled)
+                    Text("操作會重新啟動 Discord，請先結束通話或直播。")
+                        .font(.caption).foregroundStyle(.secondary)
 
                     HStack {
                         if model.vencordInstalled {
                             Button("關閉畫質繞過") {
                                 model.applyBypass(false)
                             }
-                            .disabled(model.isBusy || !model.bypassEnabled)
+                            .disabled(model.isBusy || model.isCheckingUpdate || !model.bypassEnabled)
                         }
 
                         Button("重新檢查") {
@@ -104,7 +100,12 @@ struct ContentView: View {
                             Button("開啟 Discord") {
                                 model.openDiscord()
                             }
+                            .disabled(model.isBusy)
                         }
+                    }
+                    if model.canRestore {
+                        Button("還原安裝前的 Vencord") { confirmRestore = true }
+                            .disabled(model.isBusy || model.isCheckingUpdate)
                     }
                 }
 
@@ -112,10 +113,10 @@ struct ContentView: View {
                     HStack {
                         Text(model.updateAvailable
                              ? "可更新至 v\(model.latestVersion ?? "新版")"
-                             : "目前版本 v\(model.currentVersion)")
+                             : model.pluginUpdateAvailable ? "音效外掛有更新" : "目前版本 v\(model.currentVersion)")
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button(model.updateAvailable ? "下載並安裝更新" : "檢查更新") {
+                        Button(model.updateAvailable ? "下載並安裝更新" : model.pluginUpdateAvailable ? "安裝功能更新" : "檢查更新") {
                             model.installUpdate()
                         }
                         .disabled(model.isBusy || model.isCheckingUpdate)
@@ -135,6 +136,18 @@ struct ContentView: View {
         .task {
             await model.checkForUpdates(silent: true)
         }
+        .alert("替換自訂 Vencord？", isPresented: $confirmCustom) {
+            Button("取消", role: .cancel) { }
+            Button("備份並繼續") { model.installFeatures() }
+        } message: {
+            Text("偵測到其他自訂外掛，或無法確認目前建置來源。替換後這些外掛可能無法使用；原本的 dist 會先備份，其他設定保留。")
+        }
+        .alert("還原安裝前的 Vencord？", isPresented: $confirmRestore) {
+            Button("取消", role: .cancel) { }
+            Button("還原") { model.restoreVencord() }
+        } message: {
+            Text("將重新啟動 Discord 並移除音效複製功能。4K 與其他 Vencord 設定不變。")
+        }
     }
 
     private var header: some View {
@@ -147,14 +160,14 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Discord 4K Helper")
                     .font(.title2.bold())
-                Text("啟用 Vencord 的 Nitro 串流畫質選項")
+                Text("串流畫質選項與跨伺服器音效複製")
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private var footer: some View {
-        Text("提醒：免費帳號官方上限仍是 720p/30 FPS。此工具只能解除客戶端選項，無法保證觀看端收到 4K，且使用 Vencord 可能違反 Discord 使用條款。")
+        Text("提醒：4K 選項不保證觀看端收到 4K。複製音效需要目標伺服器的「建立表情內容」權限與空位，不會繞過 Nitro 播放限制。使用自訂 Vencord 可能違反 Discord 使用條款。")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)

@@ -1,22 +1,39 @@
 import Foundation
 
 enum SettingsEditor {
-    static func updating(_ data: Data, enabled: Bool) throws -> Data {
+    static func updating(_ data: Data, enabled: Bool? = nil, soundCloner: Bool? = nil, removeSoundCloner: Bool = false) throws -> Data {
         guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw HelperError.invalidSettings
         }
+        if let plugins = root["plugins"], !(plugins is [String: Any]) { throw HelperError.invalidSettings }
 
         var plugins = root["plugins"] as? [String: Any] ?? [:]
-        var fakeNitro = plugins["FakeNitro"] as? [String: Any] ?? [:]
-        fakeNitro["enabled"] = true
-        fakeNitro["enableStreamQualityBypass"] = enabled
-        plugins["FakeNitro"] = fakeNitro
+        if let enabled {
+            if let existing = plugins["FakeNitro"], !(existing is [String: Any]) { throw HelperError.invalidSettings }
+            var fakeNitro = plugins["FakeNitro"] as? [String: Any] ?? [:]
+            fakeNitro["enabled"] = true
+            fakeNitro["enableStreamQualityBypass"] = enabled
+            plugins["FakeNitro"] = fakeNitro
+        }
+        if let soundCloner {
+            if let existing = plugins["SoundCloner"], !(existing is [String: Any]) { throw HelperError.invalidSettings }
+            var plugin = plugins["SoundCloner"] as? [String: Any] ?? [:]
+            plugin["enabled"] = soundCloner
+            plugins["SoundCloner"] = plugin
+        }
+        if removeSoundCloner { plugins.removeValue(forKey: "SoundCloner") }
         root["plugins"] = plugins
 
         return try JSONSerialization.data(
             withJSONObject: root,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
+    }
+
+    static func isSoundClonerEnabled(in data: Data) -> Bool {
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let plugins = root?["plugins"] as? [String: Any]
+        return (plugins?["SoundCloner"] as? [String: Any])?["enabled"] as? Bool == true
     }
 
     static func isBypassEnabled(in data: Data) -> Bool {
@@ -42,9 +59,15 @@ enum HelperError: LocalizedError {
     case invalidUpdate
     case updateLocationNotWritable
     case processFailed(String)
+    case invalidPluginPackage
+    case missingBackup
 
     var errorDescription: String? {
         switch self {
+        case .invalidPluginPackage:
+            return "音效外掛封裝驗證失敗，未變更現有安裝。請重新下載或更新 Helper。"
+        case .missingBackup:
+            return "找不到安裝前的 Vencord 備份，無法自動還原。"
         case .invalidSettings:
             return "Vencord 設定檔格式無法辨識。"
         case .missingVencord:

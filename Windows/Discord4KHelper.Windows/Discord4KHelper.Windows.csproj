@@ -7,8 +7,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Discord-4K-Helper-Windows-x64</AssemblyName>
     <RootNamespace>Discord4KHelper.Windows</RootNamespace>
-    <Version>2.0.1</Version>
-    <FileVersion>2.0.1.0</FileVersion>
+    <Version>2.1.0</Version>
+    <FileVersion>2.1.0.0</FileVersion>
     <Product>Discord 4K Helper</Product>
     <ApplicationIcon>..\..\Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>

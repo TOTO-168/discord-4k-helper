@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="Discord 4K Helper"
         Icon="AppIcon.ico"
-        Width="620" Height="700"
+        Width="640" Height="820"
         MinWidth="520" MinHeight="560"
         ResizeMode="CanResizeWithGrip"
         WindowStartupLocation="CenterScreen"
@@ -30,7 +30,7 @@
                 </Border>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="Discord 4K Helper" FontSize="24" FontWeight="Bold" />
-                    <TextBlock Text="安裝 Vencord 並啟用 Nitro 串流畫質選項"
+                    <TextBlock Text="串流畫質選項與跨伺服器音效複製"
                                Margin="0,4,0,0" Foreground="{StaticResource MutedBrush}" />
                 </StackPanel>
             </Grid>
@@ -71,6 +71,17 @@
                         <TextBlock x:Name="BypassStatusText" Grid.Column="2" Text="檢查中…"
                                    Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
                     </Grid>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="20" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="SoundDot" Width="10" Height="10" Fill="{StaticResource InactiveBrush}" />
+                        <TextBlock Grid.Column="1" Text="音效複製" />
+                        <TextBlock x:Name="SoundStatusText" Grid.Column="2" Text="檢查中…"
+                                   Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
+                    </Grid>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="20" />
@@ -79,7 +90,7 @@
                         </Grid.ColumnDefinitions>
                         <Ellipse x:Name="VersionDot" Width="10" Height="10" Fill="{StaticResource SuccessBrush}" />
                         <TextBlock Grid.Column="1" Text="版本" />
-                        <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.0.1"
+                        <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.1.0"
                                    Foreground="{StaticResource MutedBrush}" TextAlignment="Right" />
                     </Grid>
                 </StackPanel>
@@ -94,9 +105,11 @@
                 <StackPanel>
                     <TextBlock Text="操作" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14" />
                     <Button x:Name="PrimaryButton" Style="{StaticResource PrimaryButton}"
-                            Content="安裝 Vencord 並啟用 4K"
+                            Content="安裝／更新 4K 與音效複製功能"
                             Click="PrimaryButton_Click"
-                            automation:AutomationProperties.Name="安裝 Vencord 並啟用 4K" />
+                            automation:AutomationProperties.Name="安裝／更新 4K 與音效複製功能" />
+                    <TextBlock Text="操作會重新啟動 Discord，請先結束通話或直播。"
+                               Margin="0,10,0,0" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
                     <ProgressBar x:Name="OperationProgress" Height="4" Margin="0,10,0,0"
                                  IsIndeterminate="True" Visibility="Collapsed"
                                  automation:AutomationProperties.Name="操作進度" />
@@ -113,6 +126,8 @@
                                 Click="RefreshButton_Click"
                                 automation:AutomationProperties.Name="重新檢查狀態" />
                     </Grid>
+                    <Button x:Name="RestoreButton" Content="還原安裝前的 Vencord" Margin="0,10,0,0"
+                            Click="RestoreButton_Click" automation:AutomationProperties.Name="還原安裝前的 Vencord" />
                 </StackPanel>
             </Border>
 
@@ -136,7 +151,7 @@
                 </Grid>
             </Border>
 
-            <TextBlock Text="提醒：免費帳號的官方上限仍由 Discord 決定。此工具只能解除客戶端選項，無法保證觀看端收到 4K；使用 Vencord 也可能違反 Discord 使用條款。"
+            <TextBlock Text="提醒：4K 選項不保證觀看端收到 4K。複製音效需要目標伺服器的「建立表情內容」權限與空位，不會繞過 Nitro 播放限制。使用自訂 Vencord 可能違反 Discord 使用條款。"
                        Foreground="{StaticResource MutedBrush}" FontSize="12"
                        LineHeight="18" TextWrapping="Wrap" />
         </StackPanel>

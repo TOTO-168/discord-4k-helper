@@ -6,6 +6,10 @@ final class HelperModel: ObservableObject {
     @Published private(set) var discordInstalled = false
     @Published private(set) var vencordInstalled = false
     @Published private(set) var bypassEnabled = false
+    @Published private(set) var soundClonerEnabled = false
+    @Published private(set) var soundClonerVersion: String?
+    @Published private(set) var canRestore = false
+    @Published private(set) var pluginUpdateAvailable = false
     @Published private(set) var isBusy = false
     @Published private(set) var isCheckingUpdate = false
     @Published private(set) var updateAvailable = false
@@ -27,7 +31,7 @@ final class HelperModel: ObservableObject {
     }
 
     var currentVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.0.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "2.1.0"
     }
 
     var discordURL: URL? {
@@ -46,9 +50,16 @@ final class HelperModel: ObservableObject {
             atPath: vencordDirectory.appendingPathComponent("dist/patcher.js").path
         )
         bypassEnabled = (try? Data(contentsOf: settingsURL)).map(SettingsEditor.isBypassEnabled) ?? false
+        let installed = SoundClonerService.installed(in: vencordDirectory)
+        soundClonerVersion = installed?.pluginVersion
+        soundClonerEnabled = installed != nil && ((try? Data(contentsOf: settingsURL)).map(SettingsEditor.isSoundClonerEnabled) ?? false)
+        canRestore = fileManager.fileExists(atPath: SoundClonerService.backup(in: vencordDirectory).appendingPathComponent("patcher.js").path)
     }
 
+    var needsCustomWarning: Bool { SoundClonerService.needsCustomWarning(in: vencordDirectory) }
+
     func applyBypass(_ enabled: Bool) {
+        guard !isBusy, !isCheckingUpdate else { return }
         guard vencordInstalled else {
             showError(HelperError.missingVencord.localizedDescription)
             return
@@ -74,7 +85,7 @@ final class HelperModel: ObservableObject {
                 try await launchDiscord()
                 refresh()
                 notice = enabled
-                    ? "已啟用。請在直播畫質中選擇 4K 與 60 FPS。"
+                    ? "已啟用畫質選項。實際解析度仍受來源與 Discord 控制。"
                     : "已關閉串流畫質繞過。"
                 noticeIsError = false
             } catch {
@@ -85,26 +96,32 @@ final class HelperModel: ObservableObject {
         }
     }
 
-    func installVencordAndEnable() {
+    func installFeatures() {
+        guard !isBusy, !isCheckingUpdate else { return }
         guard discordURL != nil else {
             showError(HelperError.discordNotFound.localizedDescription)
             return
         }
 
         isBusy = true
-        notice = "正在下載並安裝 Vencord…"
+        notice = "正在下載並驗證音效外掛…"
         noticeIsError = false
 
         Task {
             do {
+                let release = try await NetworkService.latestRelease()
+                let stage = try await SoundClonerService.prepare(release, helperVersion: currentVersion)
+                defer { try? fileManager.removeItem(at: stage) }
+                notice = "正在備份、安裝並重新啟動 Discord…"
                 try await quitDiscord()
-                try await VencordInstallService.install()
+                if !vencordInstalled { try await VencordInstallService.install() }
                 refresh()
                 guard vencordInstalled else { throw HelperError.missingVencord }
-                try updateSettings(enabled: true)
+                try SoundClonerService.install(stage: stage, root: vencordDirectory, settings: settingsURL)
                 try await launchDiscord()
                 refresh()
-                notice = "Vencord 與 4K 畫質選項已安裝完成。"
+                pluginUpdateAvailable = false
+                notice = "安裝完成。在伺服器音效上按右鍵，選擇「複製到其他伺服器…」。"
                 noticeIsError = false
             } catch {
                 refresh()
@@ -114,8 +131,24 @@ final class HelperModel: ObservableObject {
         }
     }
 
+    func restoreVencord() {
+        guard !isBusy, !isCheckingUpdate else { return }
+        isBusy = true
+        noticeIsError = false
+        notice = "正在還原安裝前的 Vencord…"
+        Task {
+            defer { isBusy = false; refresh() }
+            do {
+                try await quitDiscord()
+                try SoundClonerService.restore(root: vencordDirectory, settings: settingsURL)
+                try await launchDiscord()
+                notice = "已還原原本的 Vencord，移除音效複製設定；其他設定及 4K 設定保持不變。"
+            } catch { showError(error.localizedDescription) }
+        }
+    }
+
     func checkForUpdates(silent: Bool = false) async {
-        guard !isCheckingUpdate else { return }
+        guard !isCheckingUpdate, !isBusy else { return }
         isCheckingUpdate = true
         if !silent {
             notice = "正在檢查更新…"
@@ -125,11 +158,18 @@ final class HelperModel: ObservableObject {
         do {
             let release = try await NetworkService.latestRelease()
             latestVersion = release.version?.description ?? release.tagName
+            updateAvailable = false
+            pluginUpdateAvailable = false
+            if release.asset(named: SoundClonerService.manifestName) != nil {
+                let manifest = try await SoundClonerService.manifest(for: release)
+                pluginUpdateAvailable = SoundClonerService.installed(in: vencordDirectory).map { $0 != manifest } ?? false
+            }
             if let latest = release.version, let current = AppVersion(currentVersion), latest > current {
                 updateAvailable = true
                 notice = "發現新版本 v\(latest)。"
+            } else if pluginUpdateAvailable {
+                notice = "發現音效外掛更新，按「安裝功能更新」即可安裝並重啟 Discord。"
             } else if !silent {
-                updateAvailable = false
                 notice = "目前已是最新版本。"
             }
         } catch {
@@ -139,6 +179,8 @@ final class HelperModel: ObservableObject {
     }
 
     func installUpdate() {
+        guard !isBusy, !isCheckingUpdate else { return }
+        if !updateAvailable, pluginUpdateAvailable { installFeatures(); return }
         guard updateAvailable else {
             Task { await checkForUpdates() }
             return
@@ -150,7 +192,19 @@ final class HelperModel: ObservableObject {
         Task {
             do {
                 let release = try await NetworkService.latestRelease()
-                try await AppUpdateService.prepare(release)
+                var pluginStage: URL?
+                if SoundClonerService.installed(in: vencordDirectory) != nil {
+                    pluginStage = try await SoundClonerService.prepare(release, helperVersion: release.version?.description ?? currentVersion)
+                }
+                defer { if let pluginStage { try? fileManager.removeItem(at: pluginStage) } }
+                try await AppUpdateService.prepare(release) {
+                    if let pluginStage {
+                        self.notice = "正在更新音效外掛並重新啟動 Discord…"
+                        try await self.quitDiscord()
+                        try SoundClonerService.install(stage: pluginStage, root: self.vencordDirectory, settings: self.settingsURL, enableFeatures: false)
+                        try await self.launchDiscord()
+                    }
+                }
                 notice = "更新已下載，正在重新啟動…"
                 NSApplication.shared.terminate(nil)
             } catch {
@@ -161,6 +215,7 @@ final class HelperModel: ObservableObject {
     }
 
     func openDiscord() {
+        guard !isBusy else { return }
         guard let discordURL else {
             showError(HelperError.discordNotFound.localizedDescription)
             return
