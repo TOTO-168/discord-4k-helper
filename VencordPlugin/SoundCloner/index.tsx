@@ -45,18 +45,21 @@ export function eligibleGuilds(sourceGuildId: string): Guild[] {
 }
 
 export async function soundDataUrl(soundId: string): Promise<string> {
-    const response = await fetch(`https://cdn.discordapp.com/soundboard-sounds/${soundId}`, { signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`download:${response.status}`);
-
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > 512_000) throw new Error("download:size");
-    const blob = new Blob([bytes], { type: "audio/ogg" });
-    return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(reader.error ?? new Error("read"));
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(blob);
-    });
+    try {
+        const response = await fetch(`https://cdn.discordapp.com/soundboard-sounds/${soundId}`, { signal: AbortSignal.timeout(30_000) });
+        if (!response.ok) throw new Error(String(response.status));
+        const bytes = await response.arrayBuffer();
+        if (bytes.byteLength > 512_000) throw new Error("size");
+        const blob = new Blob([bytes], { type: "audio/ogg" });
+        return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(reader.error ?? new Error("read"));
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+        });
+    } catch {
+        throw new Error("download:network-or-file");
+    }
 }
 
 export function uploadError(error: any): string {
