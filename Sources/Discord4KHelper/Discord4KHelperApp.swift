@@ -8,7 +8,7 @@ struct Discord4KHelperApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 560, idealWidth: 620, minHeight: 640, idealHeight: 760)
+                .frame(minWidth: 560, idealWidth: 620, minHeight: 740, idealHeight: 780)
         }
         .windowResizability(.contentMinSize)
     }
@@ -109,26 +109,27 @@ struct ContentView: View {
                     }
                 }
 
-                Section("軟體更新") {
-                    HStack {
-                        Text(model.updateAvailable
-                             ? "可更新至 v\(model.latestVersion ?? "新版")"
-                             : model.pluginUpdateAvailable ? "音效外掛有更新" : "目前版本 v\(model.currentVersion)")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button(model.updateAvailable ? "下載並安裝更新" : model.pluginUpdateAvailable ? "安裝功能更新" : "檢查更新") {
-                            model.installUpdate()
-                        }
-                        .disabled(model.isBusy || model.isCheckingUpdate)
-                    }
-                    if model.isCheckingUpdate {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("正在檢查更新")
-                    }
-                }
             }
             .formStyle(.grouped)
+
+            // Keep updates reachable even while the status/operation form is scrolled.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("軟體更新").font(.headline)
+                HStack {
+                    Text(model.updateAvailable
+                         ? "可更新至 v\(model.latestVersion ?? "新版")"
+                         : model.pluginUpdateAvailable ? "音效外掛有更新" : "目前版本 v\(model.currentVersion)")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if model.isCheckingUpdate {
+                        ProgressView().controlSize(.small).accessibilityLabel("正在檢查更新")
+                    }
+                    Button(model.updateAvailable ? "下載並安裝更新" : model.pluginUpdateAvailable ? "安裝功能更新" : "檢查更新") {
+                        model.installUpdate()
+                    }
+                    .disabled(model.isBusy || model.isCheckingUpdate)
+                }
+            }
 
             footer
         }

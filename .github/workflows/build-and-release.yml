@@ -47,7 +47,7 @@ jobs:
           pnpm --dir .third-party/Vencord exec eslint src/userplugins/SoundCloner/index.tsx --rule 'simple-header/header: off'
       - name: Build managed Vencord and GPL source package
         run: |
-          pnpm --dir .third-party/Vencord build --standalone --disable-updater
+          SOURCE_DATE_EPOCH="$(git -C .third-party/Vencord show -s --format=%ct)000" pnpm --dir .third-party/Vencord build --standalone --disable-updater
           node scripts/create-vencord-package.mjs .third-party/Vencord release-assets
           node scripts/verify-vencord-package.mjs release-assets
       - uses: actions/upload-artifact@v7

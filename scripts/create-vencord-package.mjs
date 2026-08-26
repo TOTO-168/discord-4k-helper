@@ -68,9 +68,14 @@ try {
 
     const sourceArchive = join(outputDir, "Vencord-SoundCloner-Source.tar.gz");
     await rm(sourceArchive, { force: true });
+    const epoch = spawnSync("git", ["-C", vencordDir, "show", "-s", "--format=%ct", "HEAD"], { encoding: "utf8" });
+    if (epoch.status !== 0 || !/^\d+$/.test(epoch.stdout.trim())) throw new Error("cannot read source timestamp");
+    const notes = join(stageRoot, "source-notes");
+    await mkdir(notes);
+    await writeFile(join(notes, "BUILD-SOUNDCLONER.md"), `# Rebuild this source archive\n\nVencord commit: ${config.vencordCommit}\nSoundCloner: ${pluginVersion}\nHelper: ${helperVersion}\n\nUse Node.js 24 and pnpm 11.9.0. From the extracted archive directory:\n\n\`\`\`sh\npnpm install --frozen-lockfile\nVENCORD_HASH=${config.vencordCommit.slice(0, 7)} VENCORD_REMOTE=Vendicated/Vencord SOURCE_DATE_EPOCH=${epoch.stdout.trim()}000 pnpm build --standalone --disable-updater\n\`\`\`\n\nThe environment variables replace Git metadata, since the source archive intentionally excludes .git. SOURCE_DATE_EPOCH is milliseconds as used by this pinned upstream build script.\n`);
     const tar = spawnSync("tar", [
         "--exclude=.git", "--exclude=node_modules", "--exclude=dist",
-        "-czf", sourceArchive, "-C", vencordDir, "."
+        "-czf", sourceArchive, "-C", vencordDir, ".", "-C", notes, "./BUILD-SOUNDCLONER.md"
     ], { encoding: "utf8" });
     if (tar.status !== 0) throw new Error(tar.stderr || "source archive failed");
 

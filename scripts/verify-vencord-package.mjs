@@ -20,7 +20,7 @@ try {
     const config = JSON.parse(await readFile(new URL("../VencordPlugin/build.json", import.meta.url), "utf8"));
     for (const key of Object.keys(config)) assert.equal(manifest[key], config[key]);
     const listing = execFileSync("tar", ["-tzf", join(output, "Vencord-SoundCloner-Source.tar.gz")], { encoding: "utf8" });
-    for (const file of ["LICENSE", "pnpm-lock.yaml", "package.json", "scripts/build/build.mjs", "src/userplugins/SoundCloner/index.tsx", "src/userplugins/SoundCloner/LICENSE"])
+    for (const file of ["LICENSE", "BUILD-SOUNDCLONER.md", "pnpm-lock.yaml", "package.json", "scripts/build/build.mjs", "src/userplugins/SoundCloner/index.tsx", "src/userplugins/SoundCloner/LICENSE"])
         assert.ok(listing.split("\n").includes("./" + file), "Source missing " + file);
     assert.ok(!listing.includes("node_modules/"));
     const plugin = execFileSync("tar", ["-xOzf", join(output, "Vencord-SoundCloner-Source.tar.gz"), "./src/userplugins/SoundCloner/index.tsx"], { encoding: "utf8" });

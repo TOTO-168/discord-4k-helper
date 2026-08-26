@@ -61,7 +61,7 @@ cp -R VencordPlugin/SoundCloner .third-party/Vencord/src/userplugins/
 pnpm --dir .third-party/Vencord install --frozen-lockfile
 pnpm --dir .third-party/Vencord testTsc
 node --test scripts/soundcloner.test.mjs
-pnpm --dir .third-party/Vencord build --standalone --disable-updater
+SOURCE_DATE_EPOCH="$(git -C .third-party/Vencord show -s --format=%ct)000" pnpm --dir .third-party/Vencord build --standalone --disable-updater
 node scripts/create-vencord-package.mjs .third-party/Vencord release-assets
 node scripts/verify-vencord-package.mjs release-assets
 SOUNDCLONER_PACKAGE="$PWD/release-assets/Vencord-SoundCloner.zip" ./scripts/build-app.sh
@@ -84,7 +84,7 @@ CI 驗證外掛邏輯與 TypeScript、封裝/原始碼/雜湊、Mac Swift 測試
 2. 推送 `main`，確認 Actions 通過，再推送同版本的 `vX.Y.Z` tag。
 3. Actions 建置 Mac、Windows、自訂 Vencord，發布 ZIP、獨立 manifest、完整對應原始碼與 GPL 授權。
 
-功能更新也應發布新 Helper 版本及相應資產；不要覆寫已發布版本的檔案。完整 Vencord 原始碼封裝含外掛、lockfile 和原始建置腳本，可直接執行 `pnpm install --frozen-lockfile`、`pnpm build --standalone --disable-updater`。
+功能更新也應發布新 Helper 版本及相應資產；不要覆寫已發布版本的檔案。完整 Vencord 原始碼封裝含外掛、lockfile、原始建置腳本及 `BUILD-SOUNDCLONER.md`，後者提供取代 `.git` 資訊所需的環境變數與固定時間戳。請依該檔案重建。
 
 ## 授權與限制
 
