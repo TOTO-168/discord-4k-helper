@@ -9,11 +9,12 @@ cd "$repo_dir"
 scratch_path="${SWIFT_SCRATCH_PATH:-.build}"
 swift test --scratch-path "$scratch_path"
 swift build --scratch-path "$scratch_path" -c release --arch arm64
+binary_dir=$(swift build --scratch-path "$scratch_path" -c release --arch arm64 --show-bin-path)
 
 app_path="$stage_dir/Discord 4K Helper.app"
 mkdir -p "$app_path/Contents/MacOS"
 mkdir -p "$app_path/Contents/Resources"
-cp "$scratch_path/arm64-apple-macosx/release/Discord4KHelper" "$app_path/Contents/MacOS/Discord4KHelper"
+cp "$binary_dir/Discord4KHelper" "$app_path/Contents/MacOS/Discord4KHelper"
 cp "Info.plist" "$app_path/Contents/Info.plist"
 cp "Assets/AppIcon.icns" "$app_path/Contents/Resources/AppIcon.icns"
 chmod 755 "$app_path/Contents/MacOS/Discord4KHelper"

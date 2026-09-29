@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace Discord4KHelper.Windows;
@@ -27,7 +28,9 @@ internal sealed record AppVersion(IReadOnlyList<int> Parts) : IComparable<AppVer
 {
     internal static AppVersion Parse(string value)
     {
-        var core = value.TrimStart('v', 'V').Split('-', 2)[0];
+        if (!Regex.IsMatch(value, @"\A[vV]?[0-9]+(?:\.[0-9]+){0,3}\z"))
+            throw new FormatException("版本編號格式錯誤。");
+        var core = value.TrimStart('v', 'V');
         var pieces = core.Split('.');
         if (pieces.Length == 0 || pieces.Any(piece => !int.TryParse(piece, out _)))
             throw new FormatException("版本編號格式錯誤。");
@@ -86,7 +89,7 @@ internal static class Web
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        var version = typeof(Web).Assembly.GetName().Version?.ToString(3) ?? "2.1.0";
+        var version = typeof(Web).Assembly.GetName().Version?.ToString(3) ?? "2.2.0";
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Discord4KHelper", version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
@@ -163,11 +166,12 @@ internal static class DiscordService
         Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
     }
 
-    private static string? FindDiscordExe()
+    internal static string? FindDiscordExe(string? root = null)
     {
-        if (!Directory.Exists(DiscordRoot)) return null;
-        return Directory.EnumerateDirectories(DiscordRoot, "app-*", SearchOption.TopDirectoryOnly)
-            .OrderDescending()
+        root ??= DiscordRoot;
+        if (!Directory.Exists(root)) return null;
+        return Directory.EnumerateDirectories(root, "app-*", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(directory => Version.TryParse(Path.GetFileName(directory)[4..], out var version) ? version : new Version())
             .Select(directory => Path.Combine(directory, "Discord.exe"))
             .FirstOrDefault(File.Exists);
     }
@@ -177,7 +181,31 @@ internal static class VencordService
 {
     internal static readonly string Root = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Vencord");
-    internal static bool IsInstalled => File.Exists(Path.Combine(Root, "dist", "patcher.js"));
+    internal static bool IsInstalled => IsInstalledAt(Root);
+
+    internal static bool IsInstalledAt(string root) =>
+        new[] { "patcher.js", "preload.js", "renderer.js", "renderer.css", "package.json" }
+            .All(name => { var file = new FileInfo(Path.Combine(root, "dist", name)); return file.Exists && file.Length > 0; });
+
+    internal static async Task MigrateLegacyBuildAsync(string root, Func<Task> reinstall)
+    {
+        var dist = Path.Combine(root, "dist");
+        if (!File.Exists(Path.Combine(dist, ".soundcloner-manifest.json"))) return;
+        var previous = Path.Combine(root, $"dist-before-migration-{Guid.NewGuid():N}");
+        Directory.Move(dist, previous);
+        try
+        {
+            await reinstall();
+            if (!IsInstalledAt(root)) throw new InvalidDataException("Vencord 安裝未完成，請稍後再試。");
+        }
+        catch
+        {
+            if (Directory.Exists(dist)) Directory.Delete(dist, true);
+            Directory.Move(previous, dist);
+            throw;
+        }
+        try { Directory.Delete(previous, true); } catch { /* Preserve the backup if cleanup fails. */ }
+    }
 
     internal static async Task InstallAsync()
     {
@@ -222,17 +250,11 @@ internal static class VencordSettings
 
     internal static void Update(bool enabled) => UpdateFile(SettingsPath, enabled, createBackup: true);
 
-    internal static bool IsSoundClonerEnabled()
-    {
-        try { return JsonNode.Parse(File.ReadAllText(SettingsPath))?["plugins"]?["SoundCloner"]?["enabled"]?.GetValue<bool>() == true; }
-        catch { return false; }
-    }
-
-    internal static string Edit(string json, bool? enabled = null, bool? soundCloner = null, bool removeSoundCloner = false)
+    internal static string Edit(string json, bool enabled, bool removeLegacySoundCloner = false)
     {
         var root = JsonNode.Parse(json) as JsonObject;
         if (root is null) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
-        if (root["plugins"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
+        if (root.ContainsKey("plugins") && root["plugins"] is not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
 
         var plugins = root["plugins"] as JsonObject;
         if (plugins is null)
@@ -241,29 +263,19 @@ internal static class VencordSettings
             root["plugins"] = plugins;
         }
 
-        if (enabled is { } bypass)
-        {
-            if (plugins["FakeNitro"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
-            var fakeNitro = plugins["FakeNitro"] as JsonObject;
-            if (fakeNitro is null) { fakeNitro = new JsonObject(); plugins["FakeNitro"] = fakeNitro; }
-            fakeNitro["enabled"] = true;
-            fakeNitro["enableStreamQualityBypass"] = bypass;
-        }
-        if (soundCloner is { } sound)
-        {
-            if (plugins["SoundCloner"] is not null and not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
-            var plugin = plugins["SoundCloner"] as JsonObject;
-            if (plugin is null) { plugin = new JsonObject(); plugins["SoundCloner"] = plugin; }
-            plugin["enabled"] = sound;
-        }
-        if (removeSoundCloner) plugins.Remove("SoundCloner");
+        if (plugins.ContainsKey("FakeNitro") && plugins["FakeNitro"] is not JsonObject) throw new InvalidDataException("Vencord 設定檔格式無法辨識。");
+        var fakeNitro = plugins["FakeNitro"] as JsonObject;
+        if (fakeNitro is null) { fakeNitro = new JsonObject(); plugins["FakeNitro"] = fakeNitro; }
+        if (enabled) fakeNitro["enabled"] = true;
+        fakeNitro["enableStreamQualityBypass"] = enabled;
+        if (removeLegacySoundCloner) plugins.Remove("SoundCloner");
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
 
-    internal static void UpdateFile(string path, bool enabled, bool createBackup)
+    internal static void UpdateFile(string path, bool enabled, bool createBackup, bool removeLegacySoundCloner = false)
     {
         var existed = File.Exists(path);
-        var updated = Edit(existed ? File.ReadAllText(path) : "{}", enabled);
+        var updated = Edit(existed ? File.ReadAllText(path) : "{}", enabled, removeLegacySoundCloner);
         var directory = Path.GetDirectoryName(path)!;
         Directory.CreateDirectory(directory);
         var backup = Path.Combine(directory, "settings.before-discord-4k-helper.json");
@@ -309,27 +321,31 @@ internal static class UpdateService
     internal static Task<GitHubRelease> GetLatestReleaseAsync() =>
         Web.GetJsonAsync<GitHubRelease>(new Uri(Distribution.ApiUrl));
 
-    internal static async Task InstallAsync(GitHubRelease release, Func<Task>? beforeRelaunch = null)
+    internal static async Task InstallAsync(GitHubRelease release)
     {
         var asset = release.Assets.FirstOrDefault(item => item.Name == Distribution.WindowsAsset)
             ?? throw new InvalidOperationException("這個版本沒有相容的 Windows 更新檔。");
         var replacement = Path.Combine(Path.GetTempPath(), $"Discord4KHelper-update-{Guid.NewGuid():N}.exe");
-        await Web.DownloadAsync(asset.DownloadUrl, replacement);
-        VencordService.ValidateExecutable(replacement);
-
-        var downloadedVersion = FileVersionInfo.GetVersionInfo(replacement).FileVersion;
-        if (release.Version is null || downloadedVersion is null ||
-            AppVersion.Parse(downloadedVersion).CompareTo(release.Version) != 0)
+        var updaterStarted = false;
+        try
         {
-            File.Delete(replacement);
-            throw new InvalidDataException("下載的更新版本無法驗證。");
-        }
+            await Web.DownloadAsync(asset.DownloadUrl, replacement);
+            VencordService.ValidateExecutable(replacement);
+            var downloadedVersion = FileVersionInfo.GetVersionInfo(replacement).FileVersion;
+            if (release.Version is null || downloadedVersion is null ||
+                AppVersion.Parse(downloadedVersion).CompareTo(release.Version) != 0)
+                throw new InvalidDataException("下載的更新版本無法驗證。");
 
-        var target = Environment.ProcessPath
-            ?? throw new InvalidOperationException("找不到目前程式路徑。");
-        EnsureDirectoryIsWritable(Path.GetDirectoryName(target)!);
-        if (beforeRelaunch is not null) await beforeRelaunch();
-        StartUpdater(target, replacement);
+            var target = Environment.ProcessPath
+                ?? throw new InvalidOperationException("找不到目前程式路徑。");
+            EnsureDirectoryIsWritable(Path.GetDirectoryName(target)!);
+            StartUpdater(target, replacement);
+            updaterStarted = true;
+        }
+        finally
+        {
+            if (!updaterStarted) { try { File.Delete(replacement); } catch { } }
+        }
     }
 
     private static void EnsureDirectoryIsWritable(string directory)
@@ -340,27 +356,33 @@ internal static class UpdateService
         finally { try { File.Delete(probe); } catch { } }
     }
 
-    private static void StartUpdater(string target, string replacement)
-    {
-        var script = Path.Combine(Path.GetTempPath(), $"Discord4KHelper-updater-{Guid.NewGuid():N}.ps1");
-        File.WriteAllText(script, """
+    internal const string UpdaterScript = """
             param([string]$Target, [string]$Replacement, [int]$ParentProcessId)
             Wait-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
-            $Backup = "$Target.discord-4k-helper-old"
+            $ErrorActionPreference = "Stop"
+            $Backup = "$Target.discord-4k-helper-old-$([guid]::NewGuid())"
+            $BackedUp = $false
             try {
                 Copy-Item -LiteralPath $Target -Destination $Backup -Force
+                $BackedUp = $true
                 Copy-Item -LiteralPath $Replacement -Destination $Target -Force
                 Start-Process -FilePath $Target
                 Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
             } catch {
-                if (Test-Path -LiteralPath $Backup) {
+                if ($BackedUp) {
                     Copy-Item -LiteralPath $Backup -Destination $Target -Force
                     Start-Process -FilePath $Target
+                    Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
                 }
             }
             Remove-Item -LiteralPath $Replacement -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-            """, Encoding.UTF8);
+            """;
+
+    private static void StartUpdater(string target, string replacement)
+    {
+        var script = Path.Combine(Path.GetTempPath(), $"Discord4KHelper-updater-{Guid.NewGuid():N}.ps1");
+        File.WriteAllText(script, UpdaterScript, Encoding.UTF8);
 
         var startInfo = new ProcessStartInfo("powershell.exe")
         {
@@ -378,7 +400,11 @@ internal static class UpdateService
         startInfo.ArgumentList.Add(replacement);
         startInfo.ArgumentList.Add("-ParentProcessId");
         startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
-        Process.Start(startInfo);
+        try
+        {
+            using var updater = Process.Start(startInfo) ?? throw new InvalidOperationException("無法啟動更新程式。");
+        }
+        catch { File.Delete(script); throw; }
     }
 }
 
@@ -388,20 +414,113 @@ internal static class SelfTest
     {
         if (!(AppVersion.Parse("v2.0.0") > AppVersion.Parse("1.9.9")))
             throw new InvalidOperationException("版本比較測試失敗。");
+        foreach (var invalid in new[] { "2..2", "2.", "vv2", "2v", "2.2-beta", "1.-2", "999999999999999999999999" })
+        {
+            try { AppVersion.Parse(invalid); throw new InvalidOperationException("接受了錯誤版本：" + invalid); }
+            catch (FormatException) { }
+        }
 
         var directory = Path.Combine(Path.GetTempPath(), $"Discord4KHelper-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
-            SoundClonerSelfTest.Run(directory);
             var settings = Path.Combine(directory, "settings.json");
             File.WriteAllText(settings, "{\"theme\":\"dark\",\"plugins\":{\"Other\":{\"enabled\":true}}}");
-            VencordSettings.UpdateFile(settings, enabled: true, createBackup: false);
+            var original = File.ReadAllText(settings);
+            VencordSettings.UpdateFile(settings, enabled: true, createBackup: true);
             var root = JsonNode.Parse(File.ReadAllText(settings));
             if (root?["theme"]?.GetValue<string>() != "dark" ||
                 root?["plugins"]?["Other"]?["enabled"]?.GetValue<bool>() != true ||
                 root?["plugins"]?["FakeNitro"]?["enableStreamQualityBypass"]?.GetValue<bool>() != true)
                 throw new InvalidOperationException("設定檔測試失敗。");
+            VencordSettings.UpdateFile(settings, enabled: false, createBackup: true);
+            if (File.ReadAllText(Path.Combine(directory, "settings.before-discord-4k-helper.json")) != original)
+                throw new InvalidOperationException("原始設定備份被覆寫。");
+            var disabled = JsonNode.Parse(VencordSettings.Edit("""{"plugins":{"FakeNitro":{"enabled":false,"enableEmojiBypass":true},"SoundCloner":{"enabled":true}}}""", false));
+            if (disabled?["plugins"]?["FakeNitro"]?["enabled"]?.GetValue<bool>() != false ||
+                disabled?["plugins"]?["FakeNitro"]?["enableEmojiBypass"]?.GetValue<bool>() != true ||
+                disabled?["plugins"]?["SoundCloner"] is null)
+                throw new InvalidOperationException("關閉畫質繞過改動了其他功能。");
+            var migrated = JsonNode.Parse(VencordSettings.Edit(disabled!.ToJsonString(), true, removeLegacySoundCloner: true));
+            if (migrated?["plugins"]?["SoundCloner"] is not null)
+                throw new InvalidOperationException("舊音效設定未清除。");
+            foreach (var json in new[] { "[]", "null", "{\"plugins\":[]}", "{\"plugins\":null}", "{\"plugins\":{\"FakeNitro\":false}}" })
+            {
+                File.WriteAllText(settings, json);
+                try { VencordSettings.UpdateFile(settings, true, false); throw new InvalidOperationException("錯誤設定被接受。"); }
+                catch (InvalidDataException) { }
+                if (File.ReadAllText(settings) != json) throw new InvalidOperationException("錯誤設定被覆寫。");
+            }
+
+            var dist = Path.Combine(directory, "dist");
+            Directory.CreateDirectory(dist);
+            var marker = Path.Combine(dist, ".soundcloner-manifest.json");
+            File.WriteAllText(marker, "{}");
+            File.WriteAllText(Path.Combine(dist, "patcher.js"), "old");
+            if (VencordService.IsInstalledAt(directory)) throw new InvalidOperationException("不完整安裝被接受。");
+            foreach (var throwsError in new[] { true, false })
+            {
+                try
+                {
+                    VencordService.MigrateLegacyBuildAsync(directory, () =>
+                    {
+                        Directory.CreateDirectory(dist);
+                        File.WriteAllText(Path.Combine(dist, "patcher.js"), "partial");
+                        if (throwsError) throw new InvalidDataException("Simulated download failure");
+                        return Task.CompletedTask;
+                    }).GetAwaiter().GetResult();
+                    throw new InvalidOperationException("轉換失敗未回報。");
+                }
+                catch (InvalidDataException) { }
+                if (File.ReadAllText(Path.Combine(dist, "patcher.js")) != "old" || !File.Exists(marker))
+                    throw new InvalidOperationException("轉換失敗未還原。");
+            }
+            VencordService.MigrateLegacyBuildAsync(directory, () =>
+            {
+                Directory.CreateDirectory(dist);
+                foreach (var name in new[] { "patcher.js", "preload.js", "renderer.js", "renderer.css", "package.json" })
+                    File.WriteAllText(Path.Combine(dist, name), "official");
+                return Task.CompletedTask;
+            }).GetAwaiter().GetResult();
+            if (!VencordService.IsInstalledAt(directory) || File.Exists(marker))
+                throw new InvalidOperationException("轉換後狀態不正確。");
+            VencordService.MigrateLegacyBuildAsync(directory, () => throw new InvalidOperationException("官方建置不應再次轉換。")).GetAwaiter().GetResult();
+
+            foreach (var version in new[] { "1.0.9", "1.0.10" })
+            {
+                var app = Path.Combine(directory, "app-" + version);
+                Directory.CreateDirectory(app);
+                File.WriteAllText(Path.Combine(app, "Discord.exe"), "test");
+            }
+            if (DiscordService.FindDiscordExe(directory) != Path.Combine(directory, "app-1.0.10", "Discord.exe"))
+                throw new InvalidOperationException("Discord 執行檔版本排序錯誤。");
+
+            // Execute the production PowerShell script with a failed copy; launching is stubbed.
+            if (OperatingSystem.IsWindows())
+            {
+                var updater = Path.Combine(directory, "updater.ps1");
+                var runner = Path.Combine(directory, "check-updater.ps1");
+                File.WriteAllText(updater, UpdateService.UpdaterScript);
+                File.WriteAllText(runner, """
+                    param([string]$Directory)
+                    $ErrorActionPreference = 'Continue'
+                    function Start-Process { param($FilePath) }
+                    function Copy-Item {
+                        param($LiteralPath, $Destination, [switch]$Force)
+                        if (!(Test-Path -LiteralPath $LiteralPath)) {
+                            Set-Content -LiteralPath $Destination -Value 'partial' -NoNewline
+                            Write-Error 'Simulated interrupted copy'
+                        } else { Microsoft.PowerShell.Management\Copy-Item -LiteralPath $LiteralPath -Destination $Destination -Force }
+                    }
+                    $target = Join-Path $Directory 'target.exe'
+                    Set-Content -LiteralPath $target -Value 'original' -NoNewline
+                    & (Join-Path $Directory 'updater.ps1') -Target $target -Replacement (Join-Path $Directory 'missing.exe') -ParentProcessId 0
+                    $ErrorActionPreference = 'Stop'
+                    if ((Get-Content -Raw -LiteralPath $target) -ne 'original') { throw 'Original executable lost' }
+                    if (Get-ChildItem $Directory -Filter '*.discord-4k-helper-old-*') { throw 'Rollback did not finish' }
+                    """);
+                Task.Run(() => ProcessTools.RunAsync("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runner, directory)).GetAwaiter().GetResult();
+            }
         }
         finally
         {

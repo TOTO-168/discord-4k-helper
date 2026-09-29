@@ -14,10 +14,10 @@ struct AppVersion: Comparable, CustomStringConvertible {
     let parts: [Int]
 
     init?(_ value: String) {
-        guard let core = value.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            .split(separator: "-", maxSplits: 1).first else { return nil }
-        let parsed = core.split(separator: ".").map(String.init).compactMap(Int.init)
-        guard !parsed.isEmpty, parsed.count == core.split(separator: ".").count else { return nil }
+        guard value.range(of: "^[vV]?[0-9]+(?:\\.[0-9]+){0,3}$", options: .regularExpression) != nil else { return nil }
+        let core = value.first == "v" || value.first == "V" ? String(value.dropFirst()) : value
+        let parsed = core.split(separator: ".").compactMap { Int($0) }
+        guard parsed.count == core.split(separator: ".").count else { return nil }
         parts = parsed
     }
 
@@ -115,6 +115,32 @@ enum ProcessRunner {
 }
 
 enum VencordInstallService {
+    static func isInstalled(in root: URL) -> Bool {
+        ["patcher.js", "preload.js", "renderer.js", "renderer.css", "package.json"].allSatisfy {
+            let file = root.appendingPathComponent("dist/\($0)")
+            guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else { return false }
+            return values.isRegularFile == true && (values.fileSize ?? 0) > 0
+        }
+    }
+
+    // Retire the old managed build; retain it until the official install is complete.
+    static func migrateLegacyBuild(in root: URL, reinstall: () async throws -> Void) async throws {
+        let fm = FileManager.default
+        let dist = root.appendingPathComponent("dist")
+        guard fm.fileExists(atPath: dist.appendingPathComponent(".soundcloner-manifest.json").path) else { return }
+        let previous = root.appendingPathComponent("dist-before-migration-\(UUID().uuidString)")
+        try fm.moveItem(at: dist, to: previous)
+        do {
+            try await reinstall()
+            guard isInstalled(in: root) else { throw HelperError.missingVencord }
+        } catch {
+            if fm.fileExists(atPath: dist.path) { try fm.removeItem(at: dist) }
+            try fm.moveItem(at: previous, to: dist)
+            throw error
+        }
+        try? fm.removeItem(at: previous)
+    }
+
     static func install() async throws {
         let installer = try await NetworkService.download(Distribution.installerURL)
         defer { try? FileManager.default.removeItem(at: installer) }
@@ -131,7 +157,38 @@ enum AppUpdateService {
         return bundle
     }
 
-    static func prepare(_ release: GitHubRelease, beforeRelaunch: () async throws -> Void = {}) async throws {
+    static var updaterScript: String { """
+        #!/bin/sh
+        target="$1"
+        replacement="$2"
+        stage="$3"
+        pid="$4"
+        backup="${target}.old-\(UUID().uuidString)"
+        candidate="${target}.new-\(UUID().uuidString)"
+        while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+        if /usr/bin/ditto "$replacement" "$candidate"; then
+            if [ ! -e "$target" ] || mv "$target" "$backup"; then
+                if mv "$candidate" "$target" && /usr/bin/open "$target"; then
+                    [ -e "$backup" ] && rm -rf "$backup"
+                else
+                    if [ -e "$backup" ]; then
+                        rm -rf "$target"
+                        mv "$backup" "$target"
+                    fi
+                    /usr/bin/open "$target"
+                fi
+            else
+                /usr/bin/open "$target"
+            fi
+        else
+            /usr/bin/open "$target"
+        fi
+        [ -e "$candidate" ] && rm -rf "$candidate"
+        rm -rf "$stage"
+        rm -f "$0"
+        """ }
+
+    static func prepare(_ release: GitHubRelease) async throws {
         guard let asset = release.asset(named: Distribution.macAssetName) else {
             throw HelperError.missingUpdateAsset
         }
@@ -172,36 +229,9 @@ enum AppUpdateService {
         if FileManager.default.fileExists(atPath: target.path),
            Bundle(url: target)?.bundleIdentifier != "tw.codex.discord4khelper" { throw HelperError.invalidUpdate }
 
-        // Finish an existing managed plugin update only after the app archive is verified.
-        try await beforeRelaunch()
-
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("discord-4k-updater-\(UUID().uuidString).sh")
-        let script = """
-        #!/bin/sh
-        target="$1"
-        replacement="$2"
-        stage="$3"
-        pid="$4"
-        backup="${target}.old-\(UUID().uuidString)"
-        candidate="${target}.new-\(UUID().uuidString)"
-        while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
-        if /usr/bin/ditto "$replacement" "$candidate"; then
-            if [ ! -e "$target" ] || mv "$target" "$backup"; then
-                if mv "$candidate" "$target"; then
-                    /usr/bin/open "$target"
-                    [ -e "$backup" ] && rm -rf "$backup"
-                else
-                    [ -e "$backup" ] && mv "$backup" "$target"
-                    /usr/bin/open "$target"
-                fi
-            fi
-        fi
-        [ -e "$candidate" ] && rm -rf "$candidate"
-        rm -rf "$stage"
-        rm -f "$0"
-        """
-        try Data(script.utf8).write(to: scriptURL, options: .atomic)
+        try Data(updaterScript.utf8).write(to: scriptURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
         let updater = Process()
